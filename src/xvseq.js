@@ -2,6 +2,8 @@ import { Seq } from "immutable";
 
 import { error } from "xverr";
 
+Seq.prototype._isSeq = true;
+
 class StrictSeq {
     constructor(array) {
 		this._isSeq = true;
@@ -42,9 +44,11 @@ class StrictSeq {
 	}
 }
 
+// TODO move check + flatten to xvtype
 export function seq(...a){
     if(a.length == 1 && _isSeq(a[0])) return a[0];
-	return Seq(a);
+    let s = Seq(a);
+    return a.length>1 && !a[0]._isNode ? s.flatten(true) : s;
 }
 
 export function toSeq($a) {
@@ -52,7 +56,7 @@ export function toSeq($a) {
 }
 
 export function _isSeq(a){
-    return Seq.isSeq(a);
+    return !!(a && a._isSeq);
 }
 
 export function _first($a){
@@ -60,8 +64,9 @@ export function _first($a){
 }
 
 export function subsequence($a,$s,$e) {
-	var s = _first(s), e = _first($e);
-	return $a.slice(s - 1, e);
+    var s = _first($s).valueOf() - 1,
+        e = _first($e);
+    return e === undefined ? $a.slice(s) : $a.slice(s, e.valueOf());
 }
 
 export function remove($a,$i) {
@@ -106,9 +111,9 @@ export function exists($i){
 
 export function _wrap(fn){
 	return function (v,i){
-		var $ = fn(seq(v),seq(i));
-        //$._position = i;
-		return $;
+        v = seq(v);
+        v._position = i;
+        return fn(v);
 	};
 }
 
@@ -116,18 +121,28 @@ export function forEach(...args){
     if(args.length==1) return _partialRight(forEach,args);
 	var fn = _first(args[1]);
 	if(typeof fn != "function") {
-		return $seq.map(function() {
+		return args[0].map(function() {
 			return fn;
 		});
 	}
 	return args[0].map(_wrap(fn)).flatten(true);
 }
 
-export function _wrapFilter(fn){
-	return function (v,i){
-		return !!_first(fn(seq(v),seq(i)));
-        //$._position = i;
-	};
+export function _wrapFilter(fn,iterator){
+    // force iterator step to check for last value
+    // throw it away when last is found to prevent reiteration
+    iterator.next();
+    var last = -1;
+    return function (v, i) {
+        v = seq(v);
+        v._position = i;
+        if(iterator && iterator.next().done) {
+            iterator = null;
+            last = i;
+        }
+        v._last = last;
+        return !!_first(fn(v));
+  };
 }
 
 export function _partialRight(fn, args){
@@ -138,14 +153,14 @@ export function _partialRight(fn, args){
 
 export function filter(... args) {
     if(args.length==1) return _partialRight(filter,args);
-	return args[0].filter(_wrapFilter(_first(args[1])));
+	return args[0].filter(_wrapFilter(_first(args[1]),args[0].__iterator(true)));
 }
 
 export function _wrapReduce(fn){
 	return function (pre,cur,i){
-		var $ = fn(seq(pre),seq(cur),seq(i));
-        //$._position = i;
-		return $;
+        cur = seq(cur);
+        cur._position = i;
+        return fn(seq(pre), cur);
 	};
 }
 
@@ -176,6 +191,8 @@ export function foldRight(...args){
  * @return {Seq|Error}     [Process Error in implementation]
  */
 export function zeroOrOne($arg) {
+    if($arg === undefined) return seq();
+    if(!_isSeq($arg)) return seq($arg);
 	if($arg.size > 1) return error("FORG0003");
 	return $arg;
 }
@@ -185,6 +202,8 @@ export function zeroOrOne($arg) {
  * @return {Seq|Error}      [Process Error in implementation]
  */
 export function oneOrMore($arg) {
+    if($arg === undefined) return error("FORG0004");
+    if(!_isSeq($arg)) return seq($arg);
 	if($arg.size === 0) return error("FORG0004");
 	return $arg;
 }
@@ -194,6 +213,9 @@ export function oneOrMore($arg) {
  * @return {Seq|Error}      [Process Error in implementation]
  */
 export function exactlyOne($arg) {
+    if($arg === undefined) return error("FORG0005");
+    if(!_isSeq($arg)) return seq($arg);
+    if($arg.size === undefined) return $arg.count();
 	if($arg.size != 1) return error("FORG0005");
 	return $arg;
 }
