@@ -112,7 +112,6 @@ export function exists($i){
 export function _wrap(fn){
 	return function (v,i){
         v = seq(v);
-        v._position = i;
         return fn(v);
 	};
 }
@@ -128,21 +127,49 @@ export function forEach(...args){
 	return args[0].map(_wrap(fn)).flatten(true);
 }
 
-export function _wrapFilter(fn,iterator){
-    // force iterator step to check for last value
-    // throw it away when last is found to prevent reiteration
-    iterator.next();
-    var last = -1;
-    return function (v, i) {
-        v = seq(v);
-        v._position = i;
-        if(iterator && iterator.next().done) {
-            iterator = null;
-            last = i;
-        }
-        v._last = last;
-        return !!_first(fn(v));
-  };
+function iteratorValue(type, k, v, iteratorResult) {
+  var value = type === 0 ? k : type === 1 ? v : [k, v];
+  iteratorResult ? (iteratorResult.value = value) : (iteratorResult = {
+    value: value, done: false
+  });
+  return iteratorResult;
+}
+
+function filterFactory(iterable, predicate, context) {
+    var filterSequence = Object.create(Seq.Indexed.prototype);
+    var last = iterable.size;
+    filterSequence.__iterateUncached = function (fn, reverse) {var this$0 = this;
+        var iterator = iterable.__iterator(1, reverse);
+        var iterations = 0;
+        iterable.__iterate(function(v, k, c)  {
+            var v2 = seq(v);
+            v2._position = k+1;
+            v2._last = last !== undefined ? last : iterable.get(k+1) === undefined ? k+1 : 0;
+            if (!!_first(predicate(v2))) {
+                iterations++;
+                var ret = fn(v, iterations - 1, this$0);
+                return ret;
+            }
+        }, reverse);
+        return iterations;
+    };
+    filterSequence.__iteratorUncached = function (type, reverse) {
+        var iterator = iterable.__iterator(1, reverse);
+        var iterations = 0;
+        return new iterator.constructor(function()  {
+          while (true) {
+            var step = iterator.next();
+            if (step.done) {
+                last = iterations;
+              return step;
+            }
+            if (!!_first(predicate(seq(step.value)))) {
+              return iteratorValue(1, iterations++, step.value, step);
+            }
+          }
+        });
+    };
+    return filterSequence;
 }
 
 export function _partialRight(fn, args){
@@ -153,13 +180,12 @@ export function _partialRight(fn, args){
 
 export function filter(... args) {
     if(args.length==1) return _partialRight(filter,args);
-	return args[0].filter(_wrapFilter(_first(args[1]),args[0].__iterator(true)));
+	return filterFactory(args[0],_first(args[1]));
 }
 
 export function _wrapReduce(fn){
 	return function (pre,cur,i){
         cur = seq(cur);
-        cur._position = i;
         return fn(seq(pre), cur);
 	};
 }
@@ -215,8 +241,9 @@ export function oneOrMore($arg) {
 export function exactlyOne($arg) {
     if($arg === undefined) return error("FORG0005");
     if(!_isSeq($arg)) return seq($arg);
-    if($arg.size === undefined) return $arg.count();
-	if($arg.size != 1) return error("FORG0005");
+    var s = $arg.size;
+    if(s === undefined) s = $arg.count();
+    if(s != 1) return error("FORG0005");
 	return $arg;
 }
 
