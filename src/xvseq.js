@@ -1,65 +1,160 @@
-import { Seq } from "immutable";
+import { Seq  as _Seq } from "immutable";
 
 import { error } from "xverr";
 
-Seq.prototype._isSeq = true;
+const LazySeq = _Seq.Indexed;
+
+LazySeq.prototype._isSeq = true;
 
 class StrictSeq {
     constructor(array) {
-		this._isSeq = true;
-        this._array = _isSeq(array) ? array._array : array instanceof Array ? array : [array];
-        this.size = array.length;
+        this._isSeq = true;
+        this._isStrict = true;
+        this._array = array === undefined ? [] : _isSeq(array) ? array._array : array instanceof Array ? array : [array];
+        this.size = this._array.length;
     }
-    __iterate(fn, cx) {
-        if (cx === undefined) cx = this;
-        var a = this._array;
-        for (var i = 0; i < a.length; i++) {
-            fn.call(cx, a[i], i, a);
+    concat(other) {
+        var ret = new StrictSeq(this._array.slice(0));
+        if (!_isSeq(other)) {
+            ret._array.push(other);
+        } else {
+            ret._array = ret._array.concat(other._array);
+        }
+        ret.size = ret._array.length;
+        return ret;
+    }
+    forEach(fn,cx) {
+        var arr = this._array, len = arr.length;
+        for(var i=0;i<len;i++){
+            fn.call(cx,arr[i],i,arr);
         }
     }
-	map(fn, cx = this) {
+    map(fn, cx = this) {
         var ret = new StrictSeq();
-        this.forEach(function (c,i,a) {
-            ret = ret.concat(fn(c, i, a));
-        }, cx);
+        var mapDeep = function(val){
+            val.forEach(function(v,k,c){
+                ret._array.push(v);
+            });
+        };
+        this.forEach(function (v, k, c) {
+          var val = fn.call(cx,v, k, c);
+          if(_isSeq(val)){
+              mapDeep(val);
+          } else {
+              ret._array.push(val);
+          }
+        });
+        ret.size = ret._array.length;
         return ret;
     }
     filter(fn, cx = this) {
+        var i = 0;
         var ret = new StrictSeq();
-        this.forEach(function (c, i, a) {
-            if(fn(c,i,a)) ret = ret.concat(c);
-        }, cx);
+        this.forEach(function (v,k,c) {
+            if (!!fn.call(cx,v,k,c)) {
+                i++;
+                ret._array.push(v);
+            }
+        });
+        ret.size = i;
         return ret;
     }
+    reduce(fn,init,cx) {
+        return this._array.reduce(function(acc,v,k,c){
+          if(v._isSeq) {
+              console.log(acc,v);
+          }
+          return fn.call(cx,acc,v,k,c);
+      },init);
+    }
+    join(str) {
+        return new StrictSeq(this.flatten()._array.join(str));
+    }
+    reverse() {
+        return new StrictSeq(this._array.slice(0).reverse());
+    }
+    sort(fn) {
+      return new StrictSeq(this._array.sort(fn));
+    }
+    toArray() {
+        return this._array;
+    }
     toString() {
-        return this._array.map(_ => _.toString()).join("\n");
+        //return this._array.map(_ => _.toString()).join("");
+        return this.__toString("[","]");
+    }
+    __toString(pre,post) {
+         return pre + this._array.map(function (_) {
+            return _.toString();
+        }).join(",") + post;
     }
     slice(s,l){
         return new StrictSeq(this._array.slice(s,l));
     }
+    isEmpty() {
+        return !(this._array && this._array.length > 0);
+    }
+    findKey(find) {
+        for(var i = 0; i<this._array.length;i++){
+            if(find(this._array[i])){
+                return i;
+            }
+        }
+    }
+    flatten() {
+        var ret = new StrictSeq();
+        var flatDeep = function(val){
+            val.forEach(function(v, k, c){
+                ret._array.push(v);
+            });
+        };
+        this.forEach(function(v, k)  {
+              if (v && v._isSeq && !v._isNode) {
+                  flatDeep(v);
+              } else {
+                  ret._array.push(v);
+              }
+          });
+          ret.size = ret._array.length;
+        return ret;
+    }
     first() {
-        return this._array[0];
+        return this.get(0);
     }
     get(i) {
         return this._array[i];
     }
-	isSeq(seq){
-		return !!(seq && seq._isSeq);
-	}
-	count(){
-		return this.size;
-	}
+    has(i) {
+        return i in this._array;
+    }
+    isSeq(seq){
+        return !!(seq && seq._isSeq);
+    }
+    count(){
+        return this.size;
+    }
+    cacheResult() {
+        // no-op compat
+        return this;
+    }
+    toJS(){
+        return this.flatten().toArray();
+    }
 }
+
+// the default Seq
+export const Seq = StrictSeq;
 
 // TODO move check + flatten to xvtype
 export function seq(...a){
-    if(a.length == 1 && _isSeq(a[0])) return a[0];
-    let s = Seq(a);
-    return a.length>1 && !a[0]._isNode ? s.flatten(true) : s;
+    var len = a.length;
+    if (len == 1 && _isSeq(a[0])) return a[0];
+    var s = new Seq(a);
+    return len>1 && !a[0]._isNode ? s.flatten(true) : s;
 }
 
 export function toSeq($a) {
-    return Seq.Indexed($a).flatten(true);
+    return new Seq($a).flatten(true);
 }
 
 export function _isSeq(a){
@@ -67,91 +162,209 @@ export function _isSeq(a){
 }
 
 export function _first($a){
-	return _isSeq($a) ? $a.first() : $a;
+    return _isSeq($a) ? $a.first() : $a;
+}
+
+export function toStrictSeq(seq){
+    seq = _isSeq(seq) ? seq : seq(seq);
+    seq._isStrict = true;
+    return seq;
+}
+
+function flattenFactory(iterable){
+    var flatSequence = Object.create(LazySeq.prototype);
+    flatSequence.__iterateUncached = function(fn, reverse) {
+        var this$0 = this;
+      var iterations = 0;
+      function flattenNext(v){
+          return v.__iterate(function(v, k, c){
+              return fn(v, iterations++, this$0) !== false;
+          });
+      }
+      iterable.__iterate(function(v, k)  {
+            if (v && v._isSeq && !v._isNode) {
+                return flattenNext(v);
+            }
+            return fn(v, iterations++, this$0) !== false;
+        }, reverse);
+      return iterations;
+  };
+  return flatSequence;
 }
 
 export function subsequence($a,$s,$e) {
-    var s = _first($s).valueOf() - 1,
+    var s = _first($s),
         e = _first($e);
+    if(s === undefined) return _xverr.error("err:XPTY0004","Argument 2 of function subsequence evaluates to an empty sequence, but expected numeric value.");
+    s = s.valueOf() - 1;
     return e === undefined ? $a.slice(s) : $a.slice(s, e.valueOf());
 }
 
 export function remove($a,$i) {
-	let i = _first($i);
-	return $a.slice(0, i - 1).concat($a.slice(i));
+    let i = _first($i);
+    return $a.slice(0, i - 1).concat($a.slice(i));
 }
 
 export function head($a) {
-	return $a.slice(0,1);
+    return $a.slice(0,1);
 }
 
 export function tail($a){
-	return $a.rest();
+    return $a.slice(1);
 }
 
 export function count($a){
     //console.log($a.toJS().length);
-	return seq($a.count());
+    return seq($a.count());
 }
 
 export function reverse($a) {
-	return $a.reverse();
+    return $a.reverse();
 }
 
 export function insertBefore($a,$pos,$ins) {
-	var pos = _first($pos);
-	pos = pos === 0 ? 1 : pos - 1;
-	return $a.slice(0,pos).concat($ins).concat($a.slice(pos));
+    var pos = _first($pos);
+    pos = pos === 0 ? 1 : pos - 1;
+    return $a.slice(0,pos).concat($ins).concat($a.slice(pos));
 }
 
 export function _isEmpty($i){
-	return _isSeq($i) ? $i.isEmpty() : false;
+    return _isSeq($i) ? $i.isEmpty() : false;
 }
 
 export function empty($i){
-	return seq(_isEmpty($i));
+    return seq(_isEmpty($i));
 }
 
 export function exists($i){
-	return seq(!_isEmpty($i));
+    return seq(!_isEmpty($i));
 }
 
 export function _wrap(fn){
-	return function (v,i){
+    return function (v,i){
         v = seq(v);
         return fn(v);
-	};
+    };
 }
 
 export function forEach(...args){
-    if(args.length==1) return _partialRight(forEach,args);
-	var fn = _first(args[1]);
-	if(typeof fn != "function") {
-		return args[0].map(function() {
-			return fn;
-		});
-	}
-	return args[0].map(_wrap(fn)).flatten(true);
+    if (args.length == 1) return _partialRight(forEach, args);
+    var fn = _first(args[1]);
+    if (typeof fn != "function") {
+      return args[0].map(function () {
+        return fn;
+      });
+    }
+    var iter = args[0];
+    return strictMap(iter,fn);
+}
+
+function strictMap(iterable,mapper, context) {
+    var ret = [];
+    iterable._array.forEach(function(v,k,c){
+        // non-native call from forEach
+      var val = mapper.call(null, seq(v));//context===undefined ? mapper.call(null, v) : mapper.call(context, v, k, c);
+      if(_isSeq(val)){
+          val.forEach(function(v, k, c){
+              ret.push(v);
+          });
+      } else {
+          ret.push(val);
+      }
+   });
+   return new StrictSeq(ret);
 }
 
 function iteratorValue(type, k, v, iteratorResult) {
-  var value = type === 0 ? k : type === 1 ? v : [k, v];
-  iteratorResult ? (iteratorResult.value = value) : (iteratorResult = {
-    value: value, done: false
-  });
-  return iteratorResult;
+    var value = type === 0 ? k : type === 1 ? v : [k, v];
+    if(iteratorResult) {
+        iteratorResult.value = value;
+    } else {
+        iteratorResult = {value: value, done: false};
+    }
+    return iteratorResult;
 }
 
-function filterFactory(iterable, predicate, context) {
-    var filterSequence = Object.create(Seq.Indexed.prototype);
-    var last = iterable.size;
-    filterSequence.__iterateUncached = function (fn, reverse) {var this$0 = this;
+var NOT_SET = {};
+function mapFactory(iterable, mapper, context) {
+    var mappedSequence = Object.create(LazySeq.prototype);
+    mappedSequence.size = iterable.size;
+    mappedSequence.has = key => iterable.has(key);
+    mappedSequence.get = (key, notSetValue) => {
+        var v = iterable.get(key, NOT_SET);
+        return v === NOT_SET ?
+            notSetValue :
+            context===undefined ? mapper.call(null,v) : mapper.call(context, v, key, iterable);
+    };
+    mappedSequence.__iterateUncached = function (fn, reverse) {
+        var iterations = 0;
+        iterable.__iterate(function(v, k, c){
+            var this$0 = this;
+            // non-native call from forEach
+            var ret = context===undefined ? mapper.call(null, v) : mapper.call(context, v, k, c);
+            if(_isSeq(ret)){
+                return ret.__iterate(function(v, k, c){
+                    return fn(v, iterations++, this$0) !== false;
+                });
+            }
+            return fn(ret, iterations++, this$0) !== false;
+        },reverse);
+        return iterations;
+    };
+    mappedSequence.__iteratorUncached = function (type, reverse) {
         var iterator = iterable.__iterator(1, reverse);
+        return new iterator.constructor(() => {
+            var step = iterator.next();
+            if (step.done) {
+                return step;
+            }
+            var entry = step.value;
+            var key = entry[0];
+            return iteratorValue(
+                type,
+                key,
+                mapper.call(context, entry[1], key, iterable),
+                step
+            );
+        });
+    };
+    return mappedSequence;
+}
+
+function reify(iter,seq){
+    return LazySeq.isSeq(iter) ? seq : iter.constructor(seq);
+}
+
+LazySeq.prototype.map = function(mapper, context){
+    return reify(this, mapFactory(this, mapper, context));
+};
+
+LazySeq.prototype.flatten = function(){
+    return reify(this, flattenFactory(this));
+};
+
+LazySeq.prototype.toStrict = function(){
+    return new StrictSeq(this.flatten(true).toArray());
+};
+
+StrictSeq.prototype.last = LazySeq.prototype.last = function(){
+    if("_cx" in this) return this._cx.size || this._cx.count();
+    return _xverr.error("err:XPDY0002");
+};
+
+StrictSeq.prototype.position = LazySeq.prototype.position = function(){
+    if("_cx" in this && "_position" in this) return this._position;
+    return _xverr.error("err:XPDY0002");
+};
+
+function filterFactory(iterable, predicate, context) {
+    var filterSequence = Object.create(LazySeq.prototype);
+    filterSequence.__iterateUncached = function (fn, reverse) {var this$0 = this;
         var iterations = 0;
         iterable.__iterate(function(v, k, c)  {
             var v2 = seq(v);
             v2._position = k+1;
-            v2._last = last !== undefined ? last : iterable.get(k+1) === undefined ? k+1 : 0;
+            v2._cx = iterable;
             if (!!_first(predicate(v2))) {
                 iterations++;
                 var ret = fn(v, iterations - 1, this$0);
@@ -167,7 +380,6 @@ function filterFactory(iterable, predicate, context) {
           while (true) {
             var step = iterator.next();
             if (step.done) {
-                last = iterations;
               return step;
             }
             if (!!_first(predicate(seq(step.value)))) {
@@ -179,6 +391,19 @@ function filterFactory(iterable, predicate, context) {
     return filterSequence;
 }
 
+function strictFilter(iterable, predicate, context) {
+    var ret = [];
+    iterable.forEach(function(v, k, c)  {
+        var v2 = seq(v);
+        v2._position = k+1;
+        v2._cx = iterable;
+        if (!!_first(predicate(v2))) {
+            ret.push(v);
+        }
+    });
+    return new StrictSeq(ret);
+}
+
 export function _partialRight(fn, args){
     return function(...a) {
         return fn.apply(this, a.concat(args));
@@ -186,15 +411,17 @@ export function _partialRight(fn, args){
 }
 
 export function filter(... args) {
-    if(args.length==1) return _partialRight(filter,args);
-	return filterFactory(args[0],_first(args[1]));
+    if (args.length == 1) return _partialRight(filter, args);
+    var iter = args[0],
+        fn = _first(args[1]);
+    return iter._isStrict ? strictFilter(iter,fn) : filterFactory(iter,fn);
 }
 
 export function _wrapReduce(fn){
-	return function (pre,cur,i){
+    return function (pre,cur,i){
         cur = seq(cur);
         return fn(seq(pre), cur);
-	};
+    };
 }
 
 export function foldLeft(...args){
@@ -202,7 +429,7 @@ export function foldLeft(...args){
     if(args.length==2) return _partialRight(foldRight,args);
     var $init = seq(args[1]);
     var fn = _first(args[2]);
-	return seq(args[0].reduce(_wrapReduce(fn),$init));
+    return seq(args[0].reduce(_wrapReduce(fn),$init));
 }
 
 /**
@@ -215,7 +442,7 @@ export function foldRight(...args){
     if(args.length==2) return _partialRight(foldRight,args);
     var $init = seq(args[1]);
     var fn = _first(args[2]);
-	return seq(args[0].reduceRight(_wrapReduce(fn),$init));
+    return seq(args[0].reduceRight(_wrapReduce(fn),$init));
 }
 
 /**
@@ -226,8 +453,8 @@ export function foldRight(...args){
 export function zeroOrOne($arg) {
     if($arg === undefined) return seq();
     if(!_isSeq($arg)) return seq($arg);
-	if($arg.size > 1) return error("FORG0003");
-	return $arg;
+    if($arg.size > 1) return error("FORG0003");
+    return $arg;
 }
 /**
  * [oneOrMore returns arg OR error if arg not one or more]
@@ -237,8 +464,8 @@ export function zeroOrOne($arg) {
 export function oneOrMore($arg) {
     if($arg === undefined) return error("FORG0004");
     if(!_isSeq($arg)) return seq($arg);
-	if($arg.size === 0) return error("FORG0004");
-	return $arg;
+    if($arg.size === 0) return error("FORG0004");
+    return $arg;
 }
 /**
  * [exactlyOne returns arg OR error if arg not exactly one]
@@ -251,7 +478,5 @@ export function exactlyOne($arg) {
     var s = $arg.size;
     if(s === undefined) s = $arg.count();
     if(s != 1) return error("FORG0005");
-	return $arg;
+    return $arg;
 }
-
-export { Seq };
