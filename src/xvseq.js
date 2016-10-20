@@ -242,8 +242,7 @@ export function exists($i){
 
 export function _wrap(fn){
     return function (v,i){
-        v = seq(v);
-        return fn(v);
+        return fn(seq(v));
     };
 }
 
@@ -256,7 +255,7 @@ export function forEach(...args){
       });
     }
     var iter = args[0];
-    return strictMap(iter,fn);
+    return iter._isStrict ? strictMap(iter,fn) : mapFactory(iter,_wrap(fn));
 }
 
 function strictMap(iterable,mapper, context) {
@@ -294,7 +293,7 @@ function mapFactory(iterable, mapper, context) {
         var v = iterable.get(key, NOT_SET);
         return v === NOT_SET ?
             notSetValue :
-            context===undefined ? mapper.call(null,v) : mapper.call(context, v, key, iterable);
+            context===mapper.call(context, v, key, iterable);
     };
     mappedSequence.__iterateUncached = function (fn, reverse) {
         var iterations = 0;
@@ -332,7 +331,7 @@ function mapFactory(iterable, mapper, context) {
 }
 
 function reify(iter,seq){
-    return LazySeq.isSeq(iter) ? seq : iter.constructor(seq);
+    return _Seq.isSeq(iter) ? seq : iter.constructor(seq);
 }
 
 LazySeq.prototype.map = function(mapper, context){
