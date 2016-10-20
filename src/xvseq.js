@@ -10,6 +10,13 @@ class StrictSeq {
         this._array = _isSeq(array) ? array._array : array instanceof Array ? array : [array];
         this.size = array.length;
     }
+    __iterate(fn, cx) {
+        if (cx === undefined) cx = this;
+        var a = this._array;
+        for (var i = 0; i < a.length; i++) {
+            fn.call(cx, a[i], i, a);
+        }
+    }
 	map(fn, cx = this) {
         var ret = new StrictSeq();
         this.forEach(function (c,i,a) {

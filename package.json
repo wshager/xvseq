@@ -21,7 +21,6 @@
     "xverr": "0.0.4"
   },
   "devDependencies": {
-    "babel-cli": "^6.14.0",
     "babel-preset-es2015": "^6.14.0"
   }
 }
