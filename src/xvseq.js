@@ -98,12 +98,14 @@ class StrictSeq {
     isEmpty() {
         return !(this._array && this._array.length > 0);
     }
-    findKey(find) {
-        for(var i = 0; i<this._array.length;i++){
-            if(find(this._array[i])){
-                return i;
+    findKeys(find) {
+        var ret = [];
+        for (var i = 0; i < this._array.length; i++) {
+            if (find(this._array[i])) {
+                ret.push(i+1);
             }
         }
+        return new StrictSeq(ret);
     }
     flatten() {
         var ret = new StrictSeq();
@@ -356,7 +358,7 @@ StrictSeq.prototype.last = LazySeq.prototype.last = function(){
 };
 
 StrictSeq.prototype.position = LazySeq.prototype.position = function(){
-    if("_cx" in this && "_position" in this) return this._position;
+    if ("_cx" in this && "_position" in this) return this._position;
     return _xverr.error("err:XPDY0002");
 };
 
