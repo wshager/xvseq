@@ -29,6 +29,10 @@ class StrictSeq {
             fn.call(cx,arr[i],i,arr);
         }
     }
+    __iterate(fn,cx) {
+        // just mimic
+        return this.forEach(fn,cx);
+    }
     map(fn, cx = this) {
         var ret = new StrictSeq();
         var mapDeep = function(val){
@@ -338,7 +342,7 @@ LazySeq.prototype.map = function(mapper, context){
     return reify(this, mapFactory(this, mapper, context));
 };
 
-LazySeq.prototype.flatten = function(){
+LazySeq.prototype.flatten2 = function(){
     return reify(this, flattenFactory(this));
 };
 

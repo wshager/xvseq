@@ -1,6 +1,6 @@
 {
   "name": "xvseq",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Sequences for XVNode",
   "main": "./lib/xvseq.js",
   "scripts": {
